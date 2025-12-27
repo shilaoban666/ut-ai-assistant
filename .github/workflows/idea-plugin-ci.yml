@@ -1,0 +1,142 @@
+name: IDEA Plugin CI
+
+on:
+  push:
+    branches:
+      - develop
+      - release
+      - master
+  pull_request:
+    branches:
+      - develop
+      - release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      # =========================
+      # 1️⃣ 拉取代码
+      # =========================
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # =========================
+      # 2️⃣ 安装 JDK 17
+      # =========================
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # =========================
+      # 3️⃣ Gradle 基础构建（所有分支）
+      # =========================
+      - name: Gradle build
+        run: ./gradlew build --no-daemon
+
+      # =========================
+      # 4️⃣ 单元测试（develop / release）
+      # =========================
+      - name: Run unit tests
+        if: github.ref != 'refs/heads/master'
+        run: ./gradlew test --no-daemon
+
+      # =========================
+      # 5️⃣ JaCoCo 覆盖率（仅 release）
+      # =========================
+      - name: Generate coverage report
+        if: github.ref == 'refs/heads/release'
+        run: ./gradlew jacocoTestReport --no-daemon
+
+      # =========================
+      # 6️⃣ 构建 IDEA 插件包（非 master）
+      # =========================
+      - name: Build IDEA plugin
+        if: github.ref != 'refs/heads/master'
+        run: ./gradlew buildPlugin --no-daemon
+
+      # =========================
+      # 7️⃣ 生成 PR Diff（仅 PR）
+      # =========================
+      - name: Generate PR diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+          echo "DIFF_SIZE=$(wc -c < pr.diff)" >> $GITHUB_ENV
+
+      # =========================
+      # 8️⃣ AI Code Review（仅 PR）
+      # =========================
+      - name: AI Code Review (IDEA Plugin)
+        if: github.event_name == 'pull_request' && env.DIFF_SIZE != '0'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 << 'EOF'
+          import os
+          import json
+          import requests
+
+          with open("pr.diff", encoding="utf-8", errors="ignore") as f:
+              diff = f.read()
+
+          prompt = f"""
+          你是 IntelliJ IDEA 插件与 Java 架构专家，请审查以下代码变更。
+
+          重点关注：
+          1. 是否阻塞 EDT（UI 线程）
+          2. 是否存在不当的后台线程 / 资源泄漏
+          3. 是否影响插件生命周期（project / editor / startup）
+          4. AI 或网络 IO 是否可能导致 IDE 卡顿
+          5. 是否符合 IDEA 插件最佳实践
+
+          不要评论格式或命名问题。
+
+          Diff:
+          {diff[:12000]}
+          """
+
+          payload = {
+              "model": "gpt-4o-mini",
+              "messages": [
+                  {"role": "system", "content": "你是严谨的 IntelliJ IDEA 插件代码审查专家"},
+                  {"role": "user", "content": prompt}
+              ],
+              "temperature": 0.2
+          }
+
+          response = requests.post(
+              "https://api.openai.com/v1/chat/completions",
+              headers={
+                  "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+                  "Content-Type": "application/json"
+              },
+              data=json.dumps(payload),
+              timeout=60
+          )
+
+          review = response.json()["choices"][0]["message"]["content"]
+
+          requests.post(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['PR_NUMBER']}/comments",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "Accept": "application/vnd.github+json"
+              },
+              data=json.dumps({"body": f"### 🤖 AI Plugin Review\n\n{review}"})
+          )
+          EOF
