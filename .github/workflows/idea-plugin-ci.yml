@@ -38,6 +38,13 @@ jobs:
           java-version: 17
           cache: gradle
 
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/wrapper-validation-action@v1
+
       # =========================
       # 3️⃣ Gradle 基础构建（所有分支）
       # =========================
