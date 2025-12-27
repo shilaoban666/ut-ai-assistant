@@ -1,0 +1,117 @@
+name: IDEA Plugin CI with AI Review
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      # 1️⃣ Checkout
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2️⃣ JDK（IDEA 插件强烈建议 17）
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # 3️⃣ 构建插件
+      - name: Build plugin
+        run: ./gradlew buildPlugin --no-daemon
+
+      # 4️⃣ 单元测试
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+      # 5️⃣ 静态分析（如果你有配置）
+      - name: Static analysis
+        run: ./gradlew check --no-daemon
+
+      # 6️⃣ IntelliJ Plugin Verifier（非常关键）
+      - name: Verify plugin compatibility
+        run: |
+          ./gradlew runPluginVerifier \
+            -Pplugin.verifier.ideVersions=2023.1,2023.2,2024.1
+
+      # 7️⃣ 生成 PR Diff（给 AI）
+      - name: Generate PR diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+          echo "DIFF_SIZE=$(wc -c < pr.diff)" >> $GITHUB_ENV
+
+      # 8️⃣ AI Code Review（聚焦插件核心）
+      - name: AI Review for IDEA Plugin
+        if: github.event_name == 'pull_request' && env.DIFF_SIZE != '0'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 << 'EOF'
+          import os, requests, json
+
+          diff = open("pr.diff", encoding="utf-8", errors="ignore").read()
+
+          prompt = f"""
+你是一个 IntelliJ IDEA 插件与 Java 架构专家，请审查以下插件代码变更：
+
+关注重点：
+1. 是否破坏 IDEA 插件生命周期（startup / project / editor）
+2. 是否存在阻塞 EDT 的风险
+3. 是否存在线程或资源泄漏问题
+4. AI / 网络调用是否可能影响 IDE 响应性
+5. 代码结构是否符合插件最佳实践
+
+不要评论代码格式或简单命名问题，只关注架构与稳定性。
+
+Diff:
+{diff[:12000]}
+"""
+
+          payload = {
+              "model": "gpt-4o-mini",
+              "messages": [
+                  {"role": "system", "content": "你是一个严谨的 IntelliJ IDEA 插件代码审查专家。"},
+                  {"role": "user", "content": prompt}
+              ],
+              "temperature": 0.2
+          }
+
+          r = requests.post(
+              "https://api.openai.com/v1/chat/completions",
+              headers={
+                  "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+                  "Content-Type": "application/json"
+              },
+              data=json.dumps(payload),
+              timeout=60
+          )
+
+          review = r.json()["choices"][0]["message"]["content"]
+
+          requests.post(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/{os.environ['PR_NUMBER']}/comments",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "Accept": "application/vnd.github+json"
+              },
+              data=json.dumps({"body": f"### 🤖 AI Plugin Review\n\n{review}"})
+          )
+          EOF
