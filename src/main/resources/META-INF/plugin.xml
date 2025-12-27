@@ -1,0 +1,76 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
+    <id>com.honghu.ut.test.ai.assistant.ut-ai-assistant</id>
+
+    <!-- Public plugin name should be written in Title Case.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
+    <name>Tape &amp; AI UT assistant</name>
+
+    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
+    <vendor email="support@example.com" url="https://www.example.com">UT AI Assistant Team</vendor>
+
+    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
+         Simple HTML elements (text formatting, paragraphs, and lists) can be added inside of <![CDATA[ ]]> tag.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-description -->
+    <description><![CDATA[
+    UT AI Assistant is a powerful IntelliJ IDEA plugin that provides:
+    <ul>
+      <li>JaCoCo coverage checking with real-time display</li>
+      <li>Detailed coverage reports generation</li>
+      <li>AI-powered unit test generation at method, class, or project level</li>
+      <li>Automatic test execution and error correction</li>
+      <li>Integration with IDEA's test running workflow</li>
+    </ul>
+    <p>Perfect for improving code quality and test coverage in your projects.</p>
+  ]]></description>
+
+    <!-- Product and plugin compatibility requirements.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.java</depends>
+
+    <!-- Extension points defined by the plugin.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Register the main plugin service -->
+        <projectService serviceImplementation="com.honghu.ut.test.ai.assistant.plugin.UtAssistantPlugin"/>
+        
+        <!-- Register the coverage tool window -->
+        <toolWindow id="Tape AI UT assistant" 
+                    factoryClass="com.honghu.ut.test.ai.assistant.ui.CoverageToolWindowFactory" 
+                    anchor="right"
+                    icon="/icons/tape.svg"/>
+        
+        <!-- Register the configuration panel -->
+        <projectConfigurable instance="com.honghu.ut.test.ai.assistant.config.UtAssistantConfigurable"/>
+    </extensions>
+    
+    <!-- Actions defined by the plugin.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-actions.html -->
+    <actions>
+        <action id="UTAssistant.RunCoverage" 
+                class="com.honghu.ut.test.ai.assistant.actions.RunCoverageAction" 
+                text="Run Coverage" 
+                description="Run JaCoCo coverage analysis">
+            <add-to-group group-id="RunContextGroup" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt U"/>
+        </action>
+        
+        <action id="UTAssistant.GenerateTests" 
+                class="com.honghu.ut.test.ai.assistant.actions.GenerateTestsAction" 
+                text="Generate Unit Tests" 
+                description="Generate unit tests using AI">
+            <add-to-group group-id="RunContextGroup" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt T"/>
+        </action>
+        
+        <!-- 右键菜单动作：Tape AI UT assistant -->
+        <action id="UTAssistant.TapeAssistant" 
+                class="com.honghu.ut.test.ai.assistant.actions.TapeAssistantActionGroup" 
+                text="Tape AI UT assistant" 
+                description="AI-powered UT assistant with coverage analysis">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
